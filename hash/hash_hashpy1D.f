@@ -19,7 +19,8 @@ c variables for storing earthquake input information
       character*1 cns,cew           ! north/south and east/west codes
 c
 c variables for polarity information, input to HASH subroutines
-      character*4 sname(npick0)                        ! station name
+      character*5 sname(npick0)                        ! station name
+      character*5 iname                                ! station name
       character*3 scomp(npick0)                        ! station component
       character*2 snet(npick0)                         ! network code
       character*1 pickpol,pickonset                    ! polarity pick : U, u, +, D, d, or - ; onset, I or E
@@ -53,30 +54,26 @@ c control parameters
       real qbadfac                                     ! assumed noise in amplitude ratios, log10 (0.3 for factor of 2)
 c
 c file names
-      character*100 outfile1,corfile,fpfile
+      character*100 outfile1,outfile2,  corfile,fpfile
       character*100 stfile,plfile,ampfile
       
       degrad=180./3.1415927
       rad=1./degrad
       
-      print *,'Enter station list file'       
+      print *,'Enter polarity and S/P ratio input file name from hashpy'       
+      read (*,'(a)') fpfile
+      open (11,file=fpfile, status='old')
+
+      print *,'Enter station file name (NonLinLoc format)'       
       read (*,'(a)') stfile
 
-      print *,'Enter station polarity reversal file'       
-      read (*,'(a)') plfile
-
-      print *,'Enter station correction file'       
-      read (*,'(a)') corfile
-
-      print *,'Enter name of amplitude input file'       
-      read (*,'(a)') ampfile
-
-      print *,'Enter name of P-polarity input file'       
-      read (*,'(a)') fpfile
-
-      print *,'Enter output file name for focal mechanisms'
+      print *,'Enter output file name for preferred focal mechanisms'
       read (*,'(a)') outfile1
       open (13,file=outfile1)
+
+      print *,'Enter output file name for other planes'
+      read (*,'(a)') outfile2
+      open (14,file=outfile2)
 
       print *,'Enter mininum number of data (e.g., 8)'
       read *,npolmin
@@ -102,10 +99,6 @@ c file names
      &  (e.g. 0.3 for a factor of 2)'
       read *,qbadfac
 
-      print *,'Enter maximum allowed source-station distance, 
-     &         in km (e.g., 120)'
-      read *,delmax
-
       print *,'Enter angle for computing mechanisms probability, 
      &         in degrees (e.g., 45)'
       read *,cangle
@@ -117,30 +110,13 @@ c make tables of takeoff angles for various velocity models
       ntab=10
       call MK_TABLE(ntab)
 
-c read in earthquake location, etc      ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT FORMAT **
-      open (11,file=fpfile,status='old')
+c read in earthquake location, etc. (hashpy format)
 120   continue
-      read (11,125,end=505) iyr,imon,idy,ihr,imn,qsec,ilatd,cns,qlatm,
-     &                ilond,cew,qlonm,qdep,seh,sez,qmag,icusp
-125   format (i4,4i2,f5.2,i2,a1,f5.2,i3,a1,f5.2,f5.2,3x,46x,
-     &                f5.2,1x,f5.2,40x,f4.2,6x,i16)     
-      qlat=real(ilatd)+(qlatm/60.0)
-      if (cns.eq.'S') then
-        qlat=-qlat
-      end if
-      qlon=-(real(ilond)+(qlonm/60.0))
-      if (cew.eq.'E') then
-        qlon=-qlon
-      end if
+      read (11,125,end=505) iyr,imon,idy,ihr,imn,qsec,qlat,
+     &                qlon,qdep,seh,sez,icusp
+125   format (5i2,1x,f5.2,1x,f10.6,1x,f10.6,1x,f9.6,1x,2f5.2,1x,a46)
+
       aspect=cos(qlat/degrad)
-      if (sez.eq.0.) sez=1.
-      terr=-9                  ! set parameters not given in input file
-      rms=-9
-      nppick=-9
-      nspick=-9
-      evtype='L'
-      magtype='X'
-      locqual='X'
 
 c choose a new source location and velocity model for each trial 
       qdep2(1)=qdep
@@ -153,13 +129,14 @@ c choose a new source location and velocity model for each trial
 
 c read in polarities       ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT FORMAT **
       k=1
+      nspr=0
 130   continue
-        read (11,135,end=140) sname(k),snet(k),scomp(k),
-     &       pickonset,pickpol
-135     format (a4,1x,a2,2x,a3,1x,a1,1x,a1)
+      read (11,*,end=140) iname,pickpol,qdist,qazi,qthe,sazi,sthe,s2p
+       if (iname.eq.'     ')  goto 140 ! end of data for this event
+       sname(k)=iname
         if (sname(k).eq.'    ')  goto 140 ! end of data for this event
-        call GETSTAT_TRI(stfile,sname(k),scomp(k),snet(k),
-     &               flat,flon,felv)   ! SCSN station information - ** YOU MAY NEED TO USE YOUR OWN SUBROUTINE **
+        call GETSTAT_NLL(stfile,sname(k),
+     &               flat,flon,felv)   ! NonLinLoc station format
         if (flat.eq.999.) go to 130
         dx=(flon-qlon)*111.2*aspect
         dy=(flat-qlat)*111.2
@@ -177,12 +154,10 @@ c read in polarities       ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT 
         else
           goto 130
         end if
-        if ((pickonset.ne.'I').and.               
-     &      (pickonset.ne.'i')) goto 130
-        call CHECK_POL(plfile,sname(k),iyr,imon,idy,ihr,ispol)  
-                          ! SCSN station polarity reversal information - ** YOU MAY NEED TO USE YOUR OWN SUBROUTINE **        
-        p_pol(k)=p_pol(k)*ispol
-        sp_ratio(k)=0.
+       if (s2p.ne.0) then
+        sp_ratio(k)=log10(s2p)
+        nspr=nspr+1
+       end if
         do 105 nm=1,nmc  ! find azimuth and takeoff angle for each trial
           p_azi_mc(k,nm)=qazi
           call GET_TTS(index(nm),range,qdep2(nm),
@@ -193,51 +168,11 @@ c read in polarities       ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT 
 140   continue
       nppl=k-1
 
-c read in amplitude ratios - find those for corresponding event ID   !  ** YOU MAY NEED TO CHANGE THE INPUT FORMAT **
-      open (12,file=ampfile,status='old')
-20    read (12,*,end=41) icusp2,nin
-      if (icusp2.ne.icusp) then
-        do i=1,nin
-          read (12,*,end=41)
-        end do
-        goto 20
-      end if
-30    do 40 i=1,nin
-        read (12,35,end=41) sname(k),scomp(k),snet(k),
-     &     qns1,qns2,qpamp,qsamp
-35      format (a4,1x,a3,1x,a2,17x,f10.3,1x,f10.3,
-     &           1x,f10.3,1x,f10.3)
-        call GETSTAT_TRI(stfile,sname(k),scomp(k),snet(k),
-     &               flat,flon,felv)   ! SCSN station information - ** YOU MAY NEED TO USE YOUR OWN SUBROUTINE **
-        if (flat.eq.999.) go to 40
-        dx=(flon-qlon)*111.2*aspect
-        dy=(flat-qlat)*111.2
-        range=sqrt(dx**2+dy**2)
-        qazi=90.-atan2(dy,dx)*degrad
-        if (qazi.lt.0.) qazi=qazi+360.
-        call GET_COR(corfile,sname(k),scomp(k),snet(k),qcor)
-        s2n1=abs(qpamp)/qns1
-        s2n2=qsamp/qns2
-        spin=qsamp/abs(qpamp)
-        if (qcor.eq.-999.) goto 40
-        if (qpamp.eq.0.) goto 40
-        if ((s2n1.lt.ratmin).or.(s2n2.lt.ratmin)) goto 40
-        sp_ratio(k)=log10(spin)-qcor
-        p_pol(k)=0
-        do nm=1,nmc  ! find azimuth and takeoff angle for each trial
-          p_azi_mc(k,nm)=qazi
-          call GET_TTS(index(nm),range,qdep2(nm),
-     &                 p_the_mc(k,nm),iflag)
-        end do
-        k=k+1
-40    continue
-41    close(12)
-      npol=k-1
-      nspr=npol-nppl
-
 cc view polarity data
-c      do k=1,npol
-c        print *,k,p_azi_mc(k,1),p_the_mc(k,1),p_pol(k),sp_ratio(k)
+c      do k=1,nppl
+c      do m=1,nmc
+c        print *,k,sname(k),p_azi_mc(k,m),p_the_mc(k,m),p_pol(k)
+c      end do
 c      end do
 
       if (nppl.lt.1) then
@@ -249,14 +184,13 @@ c      end do
      &            icusp
       end if
       
-      print *,icusp,npol,nppl,nspr
-
       nmismax=max(nint(nppl*badfrac),2)                    
       nextra=max(nint(nppl*badfrac*0.5),2)
       qmismax=max(nspr*qbadfac,2.0)                    
       qextra=max(nspr*qbadfac*0.5,2.0)
 
-      call FOCALAMP_MC(p_azi_mc,p_the_mc,sp_ratio,p_pol,npol,nmc,
+      print *,npol,nppl
+      call FOCALAMP_MC(p_azi_mc,p_the_mc,sp_ratio,p_pol,nppl,nmc,
      &    dang2,nmax0,nextra,nmismax,qextra,qmismax,nf2,strike2,dip2,
      &    rake2,f1norm,f2norm)
       nout2=min(nmax0,nf2)  ! number mechs returned from sub
@@ -292,27 +226,23 @@ c solution quality rating, completely ad-hoc - make up your own!
 
 400   continue
        
-c output prefered mechanism  ** YOU MAY WISH TO CHANGE THE OUTPUT FORMAT **
-      if (nmult.gt.1) then
-        mflag='*'
-      else
-        mflag=' '
-      end if
       do i=1,nmult
-      write (13,411) icusp,iyr,imon,idy,ihr,imn,qsec,evtype,
-     &   qmag,magtype,qlat,qlon,qdep,locqual,rms,seh,sez,terr,
-     &   nppick+nspick,nppick,nspick,
-     &   nint(str_avg(i)),nint(dip_avg(i)),nint(rak_avg(i)),
-     &   nint(var_est(1,i)),nint(var_est(2,i)),nppl,nint(mfrac(i)*100.),
-     &   qual(i),nint(100*prob(i)),nint(100*stdr(i)),nspr,
-     &   nint(mavg(i)*100.),mflag
+      write (13,*) nint(str_avg(i)),nint(dip_avg(i)),nint(rak_avg(i)),
+     & nint(100*mfrac(i)),nint(100*stdr(i)),nint(100*mavg(i))
+c ,qual(i)
       end do
-411   format(i16,1x,i4,1x,i2,1x,i2,1x,i2,1x,i2,1x,f6.3,1x,a1,1x,
-     &  f5.3,1x,a1,1x,f9.5,1x,f10.5,1x,f7.3,1x,a1,1x,f7.3,1x,f7.3,
-     &  1x,f7.3,1x,f7.3,3x,i4,1x,i4,1x,i4,1x,i4,1x,i3,1x,i4,3x,i2,
-     &  1x,i2,1x,i3,1x,i2,1x,a1,1x,i3,1x,i2,1x,i3,1x,i3,1x,a1)
-
-      goto 120
+     
+c output set of acceptable mechanisms  ** YOU MAY WISH TO CHANGE THEOUTPUT FORMAT **
+      do 500 ic=1,nout1
+      write (14,550) strike2(ic),dip2(ic),rake2(ic),
+     & f1norm(1,ic),f1norm(2,ic),f1norm(3,ic),
+     & f2norm(1,ic),f2norm(2,ic),f2norm(3,ic)
+c      write (13,550) f1norm(1,ic),f1norm(2,ic),f1norm(3,ic),
+c     &     f2norm(1,ic),f2norm(2,ic),f2norm(3,ic)
+550   format (f6.1,2x,f6.1,2x,f6.1,2x,
+     & f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5)
+c550   format (f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x)
+500   continue
       
 505   continue
       close(11)

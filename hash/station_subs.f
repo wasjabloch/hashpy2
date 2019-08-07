@@ -107,6 +107,73 @@ c search for proper component/network
 c --------------------------------------------------------------- c
 
 
+c GETSTAT_NLL finds station locations for NonLinLoc station file
+c
+c   inputs:
+c     stlfile - file with the stations and locations, in alphabetical order!
+c     snam - name of the station of interest, 4 characters
+c   outputs:
+c     flat,flon,felev - station lat, lon, and elevation
+c
+c   input file NonLinLoc format:
+c     columns  format   value
+c     -------------------------
+c     1          *      GTSRCE keyword
+c     2          *      station name
+c     3          *      LATLON keyword
+c     4          *      latitude (degree, signed)
+c     5          *      longitude (degree, signed)
+c     6          *      depth (km, positive down)
+c     7          *      elevation (km, positive up)
+c
+c
+      subroutine GETSTAT_NLL(stlfile,snam,flat,
+     &                       flon,felev)
+      parameter(nsta0=20000)
+      character stlfile*100
+      character*4 snam,stname(nsta0)
+      character*6 gtsrce,latlon
+      real slat(nsta0),slon(nsta0),selev(nsta0),dep,ele
+c      real flat,flon,felev
+      logical firstcall
+      save firstcall,stname,slat,slon,selev,nsta
+      data firstcall/.true./
+      
+c read in station list - in alphabetical order!
+      if (firstcall) then
+         firstcall=.false.
+         open (19,file=stlfile)
+         do i=1,nsta0
+           read (19,*,end=12) gtsrce,stname(i),latlon,slat(i),
+     &                         slon(i),dep,ele
+
+           selev(i)=ele-dep
+         end do
+12       nsta=i-1
+         close (19)
+      end if  
+
+c search for station name
+      do 30 it=1,nsta
+         if (snam.eq.stname(it)) then
+           goto 900
+         end if
+30    continue
+      goto 999
+      
+900   flat=slat(it)
+      flon=slon(it)
+      felev=selev(it)
+      return
+999   print *,'***station not found ',snam
+      flat=999.
+      flon=999.
+      felev=999.
+      return
+      end
+
+c --------------------------------------------------------------- c
+
 c CHECK_POL determines whether the polarity of a given station
 c     was reversed at a given time.
 c
