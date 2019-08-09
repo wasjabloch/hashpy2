@@ -2,10 +2,10 @@
 from subprocess import Popen, PIPE
 from struct import unpack
 from glob import glob
-from warnings import warn
+from warnings import warn, filterwarnings
 from copy import deepcopy
 import numpy as np
-from obspy import read_events, read
+from obspy import read_events, read, UTCDateTime
 from obspy.signal.util import util_geo_km
 from obspy.signal.trigger import recursive_sta_lta, pk_baer
 import matplotlib as mpl
@@ -15,66 +15,80 @@ from matplotlib.widgets import Cursor
 from pyrocko import moment_tensor as mtt
 
 
-def MakeEvent(sID, hypdir):
-    year = '20' + str(sID[0:2])
-    sIDnew = sID[0:6]+'.'+sID[6:12]
-    print(sIDnew)
-    try:
-        hypfile = glob(hypdir + '*'+sIDnew+'*.qml.hyp')[0]
-    except:
-        print(hypdir + '*'+sIDnew+'*.hyp')
-        print(glob(hypdir + '*'+sIDnew+'*.hyp'))
-        oldhypfile = glob(hypdir + '*'+sIDnew+'*.hyp')[0]
-        hypfile = oldhypfile.replace('.hyp', '.qml.hyp')
-        FixBrokenHyp(oldhypfile, hypfile)
+def get_event(t0, hypfiles):
+    """
+    Retrun obspy.Event near time t0 from list of hypfiles
+    """
+    hypfile = find_hypfile_from_t0(t0, hypfiles)
     event = read_events(hypfile)[0]
-    with open(hypfile, 'r') as hf:
-        for line in hf:
-            if line.startswith('GEOGRAPHIC'):
-                event.origins[0].latitude = float(line.split()[9])
-                event.origins[0].longitude = float(line.split()[11])
     return event, hypfile
 
 
-def FixBrokenHyp(oldhypfile, newhypfile):
-    """ Open NLL hypfile and inster QML keywords, if absent"""
-    qmlline = []
-    with open(oldhypfile, 'r') as hf:
-        data = hf.read()
-    lines = data.splitlines()
-    for j in range(len(lines)):
-      lines[j]+='\n'
-    lined = dict([line.split(None, 1) for line in lines[0:17]])
-    assocPhCt = usedPhCt = str(0)
-    assocStaCt = usedStaCt =  depthPhCt = str(0)
-    stdErr = str(0)
-    azGap = secAzGap = str(0)
-    gtLevel = str(0)
-    minDist = maxDist = medDist = str(0)
-    horUnc = minHorUnc = maxHorUnc = azMaxHorUnc = str(0)
-    try:
-        lined['QML_OriginQuality']
-    except:
-        qmlline = 'QML_OriginQuality ' + 'assocPhCt ' + assocPhCt + ' usedPhCt ' +  usedPhCt + ' assocStaCt ' +\
-                  assocStaCt  + ' usedStaCt ' + usedStaCt  + ' depthPhCt ' + depthPhCt  + ' stdErr ' +\
-                  stdErr  + ' azGap ' + azGap  + ' secAzGap ' + secAzGap  + ' gtLevel ' + gtLevel + ' minDist ' +\
-                  minDist + ' maxDist ' + maxDist + ' medDist ' + medDist + '\n'
-        lines.insert(13, qmlline)
-    try:
-        lined['QML_OriginUncertainty']
-    except:
-        qmlline = 'QML_OriginUncertainty' + ' horUnc ' + horUnc + ' minHorUnc ' +  minHorUnc + ' maxHorUnc ' +  maxHorUnc + ' azMaxHorUnc ' + azMaxHorUnc + '\n'
-        lines.insert(13, qmlline)
-    if qmlline:
-        with open(newhypfile, 'w') as hf:
-            for line in lines:
-                hf.write(line)
+def get_t0_from_hyp(hypfile):
+    """ Get origin time from hypfile """
+    with open(hypfile, 'r') as hf:
+        for line in hf:
+            if line.startswith('GEOGRAPHIC'):
+                f = line.split()
+                t0 = UTCDateTime(int(f[2]), int(f[3]), int(f[4]), int(f[5]),
+                                 int(f[6])) + float(f[7])
+                return t0
 
 
-def MakeTraces(sID, wvdir):
-    year = '20' + str(sID[0:2])
-    wavedir = wvdir + year + '/' + sID 
-    traces = read(wavedir + '/*HH*')
+def find_hypfile_from_t0(t0, hypfiles):
+    """
+    Search for hypfile that holds event with origin time closest to t0
+    hypfiles: (list) list of NonLinLoc hypfiles
+    t0: (UTCDateTime) origin time
+    """
+    t0 = float(t0)
+    hfs = {float(get_t0_from_hyp(hypfile)):hypfile for hypfile in hypfiles}
+    dtmin = np.inf
+    for t in sorted(hfs):
+        dt = abs(t - t0)
+        if dt < dtmin:
+            dtmin = dt
+            thishyp = hfs[t]
+        else:
+            break
+    return thishyp
+
+
+def find_ID_from_t0(t0, sIDs):
+    """
+    Search for the ID represents the event with origin time closest to t0
+    sIDs: (list) list of short IDs of format YYMMDDhhmmss
+    t0: (UTCDateTime) origin time
+    """
+    t0 = float(t0)
+    ids = {float(UTCDateTime.strptime(thisID,'%y%m%d%H%M%S')):thisID for thisID in sIDs}
+    dtmin = np.inf
+    for t in sorted(ids):
+        dt = abs(t - t0)
+        if dt < dtmin:
+            dtmin = dt
+            ID = ids[t]
+        else:
+            break
+    return ID
+
+
+def time_from_ID(ID):
+    """Decode timestring YYYYMMDDhhmmss to UTCDateTime"""
+    return UTCDateTime.strptime(ID,'%Y%m%d%H%M%S')
+
+
+def make_traces(timestamp, wvdir):
+    """
+    Read seismic traces stored in directory structre YYYY/YYMMDDhhmmss
+    """
+    filterwarnings("ignore", category=UserWarning,
+                   message='Record contains a fractional second')
+    year = timestamp.strftime('%Y')
+    IDs = [d.split('/')[-1] for d in glob(wvdir + year + '/*')]
+    ID = find_ID_from_t0(timestamp, IDs)
+    wavedir = wvdir + year + '/' + ID 
+    traces = read(wavedir + '/*[BH]H*')
     return traces
 
 
@@ -88,16 +102,22 @@ def dist_calc(lon1, lat1, lon2, lat2):
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = np.sin(dlat/2.)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.)**2
-    r = 6371.
+    r = 6371.  # km
     distance = r*2.*np.arcsin(np.sqrt(a))
 
     return distance
 
 
 def dist2stations(stations, event, filename):
+    """
+    Compute dictionary that holds event - station distances
+    station -> distance (km)
+    """
     stationdict = {}
     with open(filename,'r') as stationfile:
         for line in stationfile:
+            if not line.startswith('GTSRCE'):
+                continue
             line = line.rsplit()
             station = line[1]
 
@@ -112,71 +132,6 @@ def dist2stations(stations, event, filename):
 
     return stationdict
 
-
-def AskForGrids(directory):
-    griddirs = directory+'data/nlloc/ttables/ttt'
-    griddirs = griddirs.split(" ")
-    return griddirs
-
-
-def ReadNLLAngle(station, lon, lat, z, grid):
-    """
-    Reads a NonLinLoc angle files and returns take-off angles at specific point
-    Input:
-    basename: NLL angle file
-    station: station name
-    lon: longitude...
-    lat: latitude of the event 
-    z: depth positive down
-    Output:
-    azi: Azimut clockwise from North
-    dip: Dip, 0.0 (down) to (180.0) up
-    qual: quality, 0 (low) to 10 (high)
-    """
-    
-    hfile = grid
-    bfile = grid[:-3] + 'buf'
-
-    with open(hfile, 'r') as hf:
-        for l, line in enumerate(hf):
-            if l==0:
-                nx, ny, nz, x0, y0, z0, d  = list(map(float, line.split(None)[0:7]))
-            if line.startswith('TRANSFORM'):
-                lat0 = float(line.split()[5])
-                lon0 = float(line.split()[7])
-
-    x, y = util_geo_km(lon0, lat0, lon, lat)
-
-    xs = np.arange(x0, nx*d, d)
-    ys = np.arange(y0, ny*d, d)
-    zs = np.arange(z0, nz*d, d)
-
-    for dim in ['x', 'y', 'z']:
-        dims = dim + 's'
-        ma = max(eval(dims))
-        mi = min(eval(dims))
-        if eval(dim) < mi or eval(dim) > ma:
-            msg = dim + ' out of range! (is ' + str(eval(dim)) + ', but range is ' + str(mi) + ' to ' + str(ma) + ')'
-            warn(msg)
-
-    xx = (abs(xs-x)).argmin()
-    yy = (abs(ys-y)).argmin()
-    zz = (abs(zs-z)).argmin()
-
-    i = int(((xx*ny + yy)*nz + zz)*4)
-
-    with open(bfile, 'rb') as buf:
-        buf.seek(i)
-        fval = buf.read(4) # contains quality, azimuth and dip. 4 = short int
-
-    qualdip, azi = unpack('hh', fval)
-    azi = azi / 10.
-    dip = (qualdip // 16) / 10.
-    qual = qualdip % 16 # see http://alomax.free.fr/nlloc/ -> Formats
-
-    return azi, dip, qual
-
-
 # Picker
 ################################
 
@@ -188,26 +143,27 @@ def PickRequest(traces, station, event, dist):
             hint = 'b'
             pol = ''
             break
-        else: 
+        else:
             pickvalid = False
     if not pickvalid:
-        picktime, pol = AutoPicker(traces,station, event, dist)
+        picktime, pol = AutoPicker(traces, station, event, dist)
         hint = 'a'
     pick = [picktime, hint, pol]
 
     return pick
 
 
-def AutoPicker(traces, station, event, dist, component = 'HHZ'):
+def AutoPicker(traces, station, event, dist, component = '[BH]HZ'):
     starttime, endtime = GetTimeWindow(event, station) #.filter('highpass', freq=1.0)
-    tr = traces.select(station=station, channel=component).slice(starttime=starttime, endtime=endtime).detrend('demean')
+    tr = traces.select(station=station, channel=component).slice(
+        starttime=starttime, endtime=endtime).detrend('demean')
     if len(tr) == 0:
         return 0, ''
         
     df = tr[0].stats.sampling_rate
     p_pick, phase_info = pk_baer(tr[0].data,df,20,60,7.0,12.0,100,100) # default parameters
     picktime = starttime + (p_pick / df) 
-    print('Phaseinfo', picktime, phase_info)
+#    print('Phaseinfo', picktime, phase_info)
     if phase_info == [] or phase_info == '':
         pol = ''
     else:
@@ -404,7 +360,7 @@ def PolarityStd(picktime, trace, gs, color='black'):
 
     ax0.plot(tr1.times(), tr1.data, color='black')
     ax0.axvline(x=picktime - starttime, color='red', zorder=100, label='Pick')
-    print(picktime, starttime, picktime- starttime)
+#    print(picktime, starttime, picktime- starttime)
 
     stdmin = 0.
     stdmax = 100
@@ -421,7 +377,7 @@ def PolarityStd(picktime, trace, gs, color='black'):
     else:
         minCnt = 3
         stdsinglef = 2
-    print(minCnt, ratioStd, stdsinglef)
+#    print(minCnt, ratioStd, stdsinglef)
 
 
     ### minCounts
@@ -601,22 +557,23 @@ def AskForPolarity(traces, station, event, pick, distance):
     return pol
 
 
-def ShowPolarity(traces, station, event, pick, distance, component = 'HHZ'):
+def ShowPolarity(traces, station, event, pick, distance, component = '[BH]HZ'):
         
     picktime, hint, polPick = pick
     starttime, endtime = GetTimeWindow(event, station, distance)
 
-    rawtr = deepcopy(traces.select(station=station, channel=component).slice(starttime=starttime, endtime=endtime).detrend('demean').integrate())
+    rawtr = deepcopy(traces.select(station=station, channel=component).slice(
+        starttime=starttime, endtime=endtime).detrend('demean').integrate())
     tr = rawtr.copy()
     try:
         df = rawtr[0].stats.sampling_rate
-        dt = rawtr[0].stats.starttime - rawtr[0].stats.endtime
-    except:
+    except IndexError:
         print('Something is broken')
         fig = plt.figure()
-        return fig,'x'
+        return fig, 'x'
+    dt = rawtr[0].stats.starttime - rawtr[0].stats.endtime
 
-    fig = plt.figure(figsize=(16, 9))
+    fig = plt.figure(figsize=(8, 10))
     wm = plt.get_current_fig_manager()
     wm.window.attributes('-topmost', 0)
     gs = gridspec.GridSpec(4,2)
@@ -629,7 +586,6 @@ def ShowPolarity(traces, station, event, pick, distance, component = 'HHZ'):
     ax1 = plt.subplot(gs[0,:])
     ax1.plot(tr[0].times(), tr[0].data, 'k-')
     ax1.axvline(x=picktime - starttime, color='red', zorder=100)
-    plt.text(picktime - starttime + 0.25, 0.9*(max(tr[0].data)), '%s,%s' %(hint,polPick), color='red')
     ax1.set_title('Raw trace %s.%s \n at %.5s km distance ' %(station,component,distance))
 
     ## Zoomed data raw 
@@ -639,26 +595,26 @@ def ShowPolarity(traces, station, event, pick, distance, component = 'HHZ'):
     trzoom = tr.slice(starttime=startzoom, endtime=endzoom).detrend('linear')
     try:
         tmp = trzoom[0]
-    except:
+    except IndexError:
         print('Something is broken')
         fig = plt.figure()
         return fig, 'x'
 
     ax3 = plt.subplot(gs[2,0])
+    ax3.set_title('Zoomed raw trace')
     ax3.plot(trzoom[0].times(), trzoom[0].data, 'k-')
     ax3.axvline(x=picktime - startzoom, color='red', zorder=100)
 
     ax3.axvline(x=picktime - startzoom + poltime, color='blue', zorder=100)
     ax3.plot(picktime - startzoom + poltime, 0, GetMarker(pol), color='blue')
-    plt.text(picktime - startzoom + poltime + 0.05, 0.9*(max(trzoom[0].data)), '%s' %(polhint), color='blue')
-
-    ax3.set_title('Zoomed raw trace')
+    plt.text(picktime - startzoom + poltime + 0.05, 0.9*(max(trzoom[0].data)),
+             '%s' %(polhint), color='blue')
 
     ## Filtered data
     freq = 1.
     tr = rawtr.copy()
     trfil = tr.filter('highpass', freq=freq)
-    ax2 = plt.subplot(gs[1,:])
+    ax2 = plt.subplot(gs[1,:], sharex=ax1)
     ax2.plot(trfil[0].times(), trfil[0].data, 'k-')
     ax2.axvline(x=picktime - starttime, color='red', zorder=100)
     ax2.set_title('Filtered trace, HP %s Hz' %freq)
@@ -737,43 +693,58 @@ def AskForPSAmplitudes(traces, station, pick, dist):
     starttime = picktime - 5
     endtime = starttime + 50+dist/8.
 
-    tr = traces.select(station=station, channel='HH?').detrend('demean').integrate().detrend('linear').slice(starttime=starttime, endtime=endtime)
+    tr = traces.select(station=station, channel='[BH]H?').detrend(
+            'demean').integrate().detrend('linear').slice(
+            starttime=starttime, endtime=endtime)
     df = tr[0].stats.sampling_rate
     pickindex = picktime - starttime-cuttime
     try: 
         sumtrace = np.sqrt(tr[0].data**2 + tr[1].data**2 + tr[2].data**2)
-    except:
+    except IndexError:
         print('Could not Sum trace. Maybe one trace is missing.')
         return 'x', 'x'
     sumtrace = sumtrace / max(sumtrace)*100
 
-    fig = plt.figure(figsize=(16, 9))
-    ax1 = plt.subplot(211)
+    fig = plt.figure(figsize=(8, 10))
+    ax1 = plt.subplot(311)
     ax1.plot(tr[0].times()[int(cuttime*df):]-cuttime, sumtrace[int(cuttime*df):], color='black')
-    ax1.axvline(x=pickindex, color='red', zorder=100)
     ax1.set_ylabel('Normalized amplitude')
     ax1.set_title('SquaredSum trace')
 
     trfil = tr.filter('highpass', freq=1).slice(starttime=starttime+cuttime, endtime=endtime)
     try: 
         sumtracefil = np.sqrt(trfil[0].data**2 + trfil[1].data**2 + trfil[2].data**2)
-    except:
+    except IndexError:
         print('Could not Sum trace. Maybe one trace is missing.')
         return 'x', 'x'
     sumtracefil = sumtracefil / max(sumtracefil)*100
 
-    ax2 = plt.subplot(212)
+    ax2 = plt.subplot(312, sharex=ax1)
     ax2.plot(trfil[0].times(), sumtracefil, color='black')    
-    ax2.axvline(x=pickindex, color='red', zorder=100)
     ax2.set_ylabel('Normalized amplitude')
     ax2.set_xlabel('Normalized time')
     ax2.set_title('Filtered SquareSum trace')
     cursor = Cursor(ax2, useblit=True, color='gray', linewidth=1)
 
+    ax3 = plt.subplot(313, sharex=ax2)
+    ax3.plot(trfil[0].times(), trfil[0].data, linewidth=.5, color='black')    
+    ax3.plot(trfil[0].times(), trfil[1].data, linewidth=.5, color='steelblue')    
+    ax3.plot(trfil[0].times(), trfil[2].data, linewidth=.5, color='purple')    
+    ax3.plot(pickindex, 0, marker='|')    
+
+    p,s = AmplitudePicker(sumtracefil, pickindex, df, dist)
+
+    for a in [ax1, ax2]:
+        a.axhline(y=p, zorder=-100, color='red')
+        a.axhline(y=s, zorder=-100, color='blue')
+        a.text(0, p, '{:3.0f}'.format(p), va='bottom', ha='left', color='red')
+        a.text(0, s, '{:3.0f}'.format(s), va='bottom', ha='left', color='blue')
+        a.plot(pickindex, 0, marker='|')    
+
+
     plt.tight_layout()
     fig.show()
     
-    p,s = AmplitudePicker(sumtracefil, pickindex, df, dist)
 
     valid = False
     psamp = input('What is the P- and the S-wave amplitude? (Two values or x or a/ENTER for accept)\n').split(' ')
