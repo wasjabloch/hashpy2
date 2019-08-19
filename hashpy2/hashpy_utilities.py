@@ -12,7 +12,85 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.widgets import Cursor
-from pyrocko import moment_tensor as mtt
+
+
+def print_config_tipps():
+    """ Print meaning of configuration parameters to screen """
+    print('')
+    print('----------------------------------')
+    print('Control parameters of hashpy2 are:')
+    print('')
+    print('CATALOG:')
+    print('    Regular expression pattern for NonLinLoc .hyp files holding')
+    print('    hypocenter, location error and phase information.')
+    print('')
+    print('RESULTS:')
+    print('    Directory in which the results will be stored. Must be present.')
+    print('')
+    print('WAVEFORMS:')
+    print('    Directory in which the waveform files are stored. Directory')
+    print('    structure is:')
+    print('    WAVEFORMS/YYYY/YYMMDDhhmmss, where')
+    print('    - YYYY is four digit year,')
+    print('    - YY, MM, DD, hh, mm, ss are two digit year, month, day,')
+    print('      hour, minute, and second.')
+    print('    Make sure that all three components are present and that they')
+    print('    are present only once.')
+    print('')
+    print('VELOCITIES:')
+    print('    List of velocity model files holding two columns:')
+    print('    - depth (km), velocity (km/s)')
+    print('    Velocities are interpolated linearly. Use zero thickness layers')
+    print('    to model discontinuities.')
+    print('')
+    print('LOGGING:')
+    print('    Choose verbosity of program output.')
+    print('')
+    print('-------------------------------')
+    print('Control parameters of HASH are:')
+    print('')
+    print('dang:')
+    print('    Angle increment for grid search.')
+    print('')
+    print('nmc:')
+    print('    Number of perutbations of take-off angles for different source')
+    print('    depths and velocity models.')
+    print('')
+    print('maxout:')
+    print('    Maximum number focal mechanisms that match misfit critria to')
+    print('    return.')
+    print('')
+    print('cangle:')
+    print('    Angular distance between different families of focal mechanisms.')
+    print('')
+    print('prob_max:')
+    print('    Fraction of focal mechanisms that need to be within cangle')
+    print('    to make up a new famlily of focal mechanisms.')
+    print('')
+    print('qbadfac:')
+    print('    log10 of uncertainty factor for s/p ratios.')
+    print('')
+
+
+def write_default_config(filename):
+    """
+    Write default configuration parameters to file.
+    filename: (str) Name of the file
+    """
+    with open(filename, 'w') as f:
+        f.write('CATALOG: ./hyp/*.hyp\n')
+        f.write('RESULTS: ./results\n')
+        f.write('WAVEFORMS: ./events\n')
+        f.write('STATIONS: stations.nll\n')
+        f.write('VELOCITIES:\n')
+        f.write('    - vmodel.zv\n')
+        f.write('LOGGING: WARNING\n')
+        f.write('dang: 1\n')
+        f.write('nmc: 50\n')
+        f.write('maxout: 100\n')
+        f.write('cangle: 45\n')
+        f.write('prob_max: 0.2\n')
+        f.write('qbadfac: 0.2\n')
 
 
 def get_event(t0, hypfiles):
@@ -137,14 +215,13 @@ def dist2stations(stations, event, filename):
 
 def PickRequest(traces, station, event, dist):
     for pick in event.picks:
+        pickvalid = False
         if (pick.waveform_id['station_code'] == station) and (pick.phase_hint == 'P'):
             pickvalid = True
             picktime = pick.time
             hint = 'b'
-            pol = ''
+            pol = 'x'
             break
-        else:
-            pickvalid = False
     if not pickvalid:
         picktime, pol = AutoPicker(traces, station, event, dist)
         hint = 'a'
@@ -154,18 +231,17 @@ def PickRequest(traces, station, event, dist):
 
 
 def AutoPicker(traces, station, event, dist, component = '[BH]HZ'):
-    starttime, endtime = GetTimeWindow(event, station) #.filter('highpass', freq=1.0)
+    starttime, endtime = GetTimeWindow(event, station)
     tr = traces.select(station=station, channel=component).slice(
         starttime=starttime, endtime=endtime).detrend('demean')
     if len(tr) == 0:
         return 0, ''
-        
     df = tr[0].stats.sampling_rate
     p_pick, phase_info = pk_baer(tr[0].data,df,20,60,7.0,12.0,100,100) # default parameters
     picktime = starttime + (p_pick / df) 
 #    print('Phaseinfo', picktime, phase_info)
     if phase_info == [] or phase_info == '':
-        pol = ''
+        pol = 'x'
     else:
         pol = phase_info[2] 
 
@@ -197,7 +273,6 @@ def PolarityPicker(picktime, trace, gs):
 
 
 def PolarityGradient(picktime, trace, gs, color='black'):
-    print('GradientPicker')
     timewindow = 0.5
     poltrace = trace.copy()
 
@@ -210,13 +285,12 @@ def PolarityGradient(picktime, trace, gs, color='black'):
 
     tmpstd = np.std(tr.data)
     if np.isnan(tmpstd):
-        pol = ''
+        pol = 'x'
         poltime = 0
-        return '', poltime
+        return pol, poltime
  
     df = tr.stats.sampling_rate
 
-    print(len(tr.data), tmpstd)
     ### simple gradient picker
     if False:
         for ii in range(len(tr.data)-2):
@@ -234,7 +308,7 @@ def PolarityGradient(picktime, trace, gs, color='black'):
                 break
 
             else:
-                pol = ''
+                pol = 'x'
                 poltime = 0
 
     ### advanced gradient picker, measuring the gradient change 
@@ -251,7 +325,7 @@ def PolarityGradient(picktime, trace, gs, color='black'):
                     d1 = tr.data[ii+nn]
                     d2 = tr.data[ii+1+nn]
                     d3 = tr.data[ii+2+nn]
-                    pol = ''
+                    pol = 'x'
                     poltime = 0
                     if np.sign(d2-d1) != np.sign(d3-d2):
                         poltime = tr.times()[ii+1+nn]
@@ -262,20 +336,24 @@ def PolarityGradient(picktime, trace, gs, color='black'):
                         break
 
                 if pol in ['+', '-']:
-                    dpp2 = tr.data[ii+3+nn]
-                    dpp1 = tr.data[ii+2+nn]
-                    dp = tr.data[ii+1+nn]
-                    dpm1 = tr.data[ii+nn]
-                    dpm2 = tr.data[ii-1+nn]
-                    if np.sign(dp-dpm1) != np.sign(dpm1-dpm2) and np.sign(dpp2-dpp1) != np.sign(dpp1-dp):
+                    try:
+                        dpp2 = tr.data[ii+3+nn]
+                        dpp1 = tr.data[ii+2+nn]
+                        dp = tr.data[ii+1+nn]
+                        dpm1 = tr.data[ii+nn]
+                        dpm2 = tr.data[ii-1+nn]
+                    except IndexError:
+                        continue
+                    if (np.sign(dp-dpm1) != np.sign(dpm1-dpm2) and
+                        np.sign(dpp2-dpp1) != np.sign(dpp1-dp)):
                         continue
                     else:
                         break
             else:
-                pol = ''
+                pol = 'x'
                 poltime = 0
         else:
-            pol = ''
+            pol = 'x'
             poltime = 0
 
 
@@ -302,16 +380,16 @@ def PolarityGradient(picktime, trace, gs, color='black'):
  
                         break
                     else:
-                        pol = ''
+                        pol = 'x'
                         poltime = 0
                 else:
-                    pol = ''
+                    pol = 'x'
                     poltime = 0
 
-                if pol != '':
+                if pol != 'x':
                     break
             else:
-                pol = ''
+                pol = 'x'
                 poltime = 0
 
     ax0 = plt.subplot(gs)
@@ -324,7 +402,6 @@ def PolarityGradient(picktime, trace, gs, color='black'):
 
 
 def PolarityStd(picktime, trace, gs, color='black'):
-    print('StdPicker')
     ax0 = plt.subplot(gs)
     ax0.set_title('STD Picker')
 
@@ -341,9 +418,9 @@ def PolarityStd(picktime, trace, gs, color='black'):
     stdSig = np.std(stdSigtr.data)
 
     if np.isnan(std) or np.isnan(stdSig):
-        pol = ''
+        pol = 'x'
         poltime = 0
-        return '', poltime
+        return pol, poltime
 
     ratioStd = stdSig/std
 
@@ -405,7 +482,7 @@ def PolarityStd(picktime, trace, gs, color='black'):
                 break
 
             else:
-                pol = ''
+                pol = 'x'
                 poltime = 0
         
         if pol == fpol:
@@ -427,7 +504,7 @@ def PolarityStd(picktime, trace, gs, color='black'):
         ax0.axhline(y=stdneg, color=color, zorder=-100, alpha=0.5)
 
     if minCnt > cnt:
-        pol = ''
+        pol = 'x'
         poltime = 0.
 
     ### stdsinglef
@@ -444,7 +521,7 @@ def PolarityStd(picktime, trace, gs, color='black'):
             break
 
         else:
-            pol = ''
+            pol = 'x'
             poltime = 0
 
     ax0.axvline(x=poltime, color='green', zorder=100, label='STD')
@@ -524,37 +601,28 @@ def GetMarker(pol):
 # Polarities
 ################################
 
-def MakePolarityRequest(traces, station, event, pick, distance):
-    isvalid = True
-
-    pol = AskForPolarity(traces, station, event, pick, distance)
-    print(pol)
-    if pol is 'x':
-        isvalid = False
-
-    return pol, isvalid
-
-
 def AskForPolarity(traces, station, event, pick, distance):
+    """ Ask the user for polarity observation """
     fig, pol = ShowPolarity(traces, station, event, pick, distance)
     fig.show()
 
-    ans = ''
-    if pol == '':
-        while ans not in ['+', '-', 'x']:
-            ans = input('What P-wave polarity do you see? (+, -, x)')
-    else:
-        ans = input('Press \'a\' or ENTER for accepting the suggested Polarity: %s or correct it.' %pol)
-        while ans not in ['+', '-', 'x', 'a', '']:
-            if ans in ['a','']:
-                break
-            else:
-                ans = input('Polarity must be one of +, -, x or a.\n')
-    if ans in ['+', '-', 'x']:
-        pol = ans
+    quality = {'++':1, '--':1, '':1, '+':0, '-':0, 'x':0, 'L':0}
+    polarity = {'++': '+', '+':'+', '--':'-', '-':'-', 'x':'x', 'L':'x'}
+    ans = None
+    leave = False
+    while ans not in ['++', '+', 'x', '-', '--', '', 'L']:
+        print('(ENTER) to accept polarity: {:}{:}'.format(pol, pol))
+        print('(++, +, x, -, --) to correct')
+        print('(L)eave picking routine')
+        ans = input('')
+    if ans != '':
+        pol = polarity[ans]
+    if ans == 'L':
+        leave = True
+    qpol = quality[ans]
     plt.close(fig)
 
-    return pol
+    return pol, qpol, leave
 
 
 def ShowPolarity(traces, station, event, pick, distance, component = '[BH]HZ'):
@@ -662,8 +730,8 @@ def AskIfPolarityIsGood(traces, station, event, pick, distance, pol):
         ans = input(msg)
         if ans in ['a']:
             newpol = pol
-        elif ans is '':
-            newpol = ''
+        elif ans is 'x':
+            newpol = 'x'
         elif ans in ['x', '+', '-']:
             newpol = ans
         else:
@@ -678,113 +746,128 @@ def AskIfPolarityIsGood(traces, station, event, pick, distance, pol):
 # Amplitudes
 ################################
 
-def MakeAmplitudeRequest(traces, station, pick, dist):
-    isvalid = True
-    p, s = AskForPSAmplitudes(traces, station, pick, dist)
-    if p is 'x':
-        isvalid = False
-
-    return p, s, isvalid
-
-
-def AskForPSAmplitudes(traces, station, pick, dist):
-    picktime, hint, polPick = pick
+def get_spratio(traces, station, pick, dist):
+    """
+    Consumes seismic traces, station, pick and distance information
+    Automatically dertmines the amplitude of P and S amplitudes
+    Asks the user for confirmation or input
+    """
+    picktime, _, _ = pick
     cuttime = 3.
     starttime = picktime - 5
     endtime = starttime + 50+dist/8.
 
     tr = traces.select(station=station, channel='[BH]H?').detrend(
-            'demean').integrate().detrend('linear').slice(
+        'demean').integrate().detrend('linear').slice(
             starttime=starttime, endtime=endtime)
     df = tr[0].stats.sampling_rate
     pickindex = picktime - starttime-cuttime
-    try: 
+    try:
         sumtrace = np.sqrt(tr[0].data**2 + tr[1].data**2 + tr[2].data**2)
-    except IndexError:
-        print('Could not Sum trace. Maybe one trace is missing.')
-        return 'x', 'x'
+    except (IndexError, ValueError):
+        print('Could not Sum trace. Maybe one trace is missing or corrupt.')
+        return 0, 0
     sumtrace = sumtrace / max(sumtrace)*100
 
     fig = plt.figure(figsize=(8, 10))
     ax1 = plt.subplot(311)
     ax1.plot(tr[0].times()[int(cuttime*df):]-cuttime, sumtrace[int(cuttime*df):], color='black')
     ax1.set_ylabel('Normalized amplitude')
-    ax1.set_title('SquaredSum trace')
+    ax1.set_title('Cartesian sum of traces')
 
     trfil = tr.filter('highpass', freq=1).slice(starttime=starttime+cuttime, endtime=endtime)
-    try: 
+    try:
         sumtracefil = np.sqrt(trfil[0].data**2 + trfil[1].data**2 + trfil[2].data**2)
-    except IndexError:
-        print('Could not Sum trace. Maybe one trace is missing.')
-        return 'x', 'x'
+    except (IndexError, ValueError):
+        print('Could not Sum trace. Maybe one trace is missing or corrupt.')
+        return 0, 0
     sumtracefil = sumtracefil / max(sumtracefil)*100
 
     ax2 = plt.subplot(312, sharex=ax1)
-    ax2.plot(trfil[0].times(), sumtracefil, color='black')    
+    ax2.plot(trfil[0].times(), sumtracefil, color='black')
     ax2.set_ylabel('Normalized amplitude')
     ax2.set_xlabel('Normalized time')
-    ax2.set_title('Filtered SquareSum trace')
+    ax2.set_title('Filtered Cartesian sum of traces')
     cursor = Cursor(ax2, useblit=True, color='gray', linewidth=1)
 
     ax3 = plt.subplot(313, sharex=ax2)
-    ax3.plot(trfil[0].times(), trfil[0].data, linewidth=.5, color='black')    
-    ax3.plot(trfil[0].times(), trfil[1].data, linewidth=.5, color='steelblue')    
-    ax3.plot(trfil[0].times(), trfil[2].data, linewidth=.5, color='purple')    
-    ax3.plot(pickindex, 0, marker='|')    
+    ax3.plot(trfil[0].times(), trfil[0].data, linewidth=.5, color='black')
+    ax3.plot(trfil[0].times(), trfil[1].data, linewidth=.5, color='steelblue')
+    ax3.plot(trfil[0].times(), trfil[2].data, linewidth=.5, color='purple')
+    ax3.plot(pickindex, 0, marker='|')
 
-    p,s = AmplitudePicker(sumtracefil, pickindex, df, dist)
+    p, s = AmplitudePicker(sumtracefil, pickindex, df, dist)
 
     for a in [ax1, ax2]:
-        a.axhline(y=p, zorder=-100, color='red')
+        a.axhline(y=p, zorder=-100, color='maroon')
         a.axhline(y=s, zorder=-100, color='blue')
-        a.text(0, p, '{:3.0f}'.format(p), va='bottom', ha='left', color='red')
+        a.text(0, p, '{:3.0f}'.format(p), va='bottom', ha='left', color='maroon')
         a.text(0, s, '{:3.0f}'.format(s), va='bottom', ha='left', color='blue')
-        a.plot(pickindex, 0, marker='|')    
-
+        a.plot(pickindex, 0, marker='|')
 
     plt.tight_layout()
     fig.show()
-    
 
-    valid = False
-    psamp = input('What is the P- and the S-wave amplitude? (Two values or x or a/ENTER for accept)\n').split(' ')
-    while not valid:
-        if 'a' in psamp or psamp == ['']:
-            valid = True
-        else:
-            try: 
-                p = float(psamp[0])
-                s = float(psamp[1])
-                valid = True
-            except (ValueError, IndexError):
-                if 'x' in psamp:
-                    p = s = 'x'
-                    valid = True
-                else:
-                    psamp = input('No valid input. Give "x" to abort or exactly two values separated with a SPACE\n').split(' ')
+    p, s = ask_for_amplitudes(p, s)
+
+    if p == 'x' or s == 'x':
+        plt.close()
+        return 0
+
+    sp = s/p
+
     plt.close()
-    print(p, s)
+    return sp
+
+def ask_for_amplitudes(p='x', s='x'):
+    """
+    Print the amplidue question to console
+    p: (float) a priori p wave amplitude)
+    s: (float) a priori s wave amplitude)
+    """
+    while True:
+        print('What are the P and S wave amplitudes?')
+        print('(ENTER) accept {:.0f} {:.0f}'.format(p, s))
+        print('(x) for undefined')
+        print('(two values) best estimate and error estimate')
+        ans = input('').split(' ')
+        if ans == ['']:
+            break
+        elif 'x' in ans:
+            p = 'x'
+            s = 'x'
+            break
+        else:
+            try:
+                p = float(ans[0])
+                s = float(ans[1])
+            except (ValueError, IndexError):
+                print('Invalid input: ' + ans)
+                continue
+            if p <= 0 or s <= 0:
+                print('Amplitudes must be greater 0')
+            else:
+                break
     return p, s
 
 
 def AmplitudePicker(trace, pickindex, df, dist):
     # vp = 6.
     # vs = 6./np.sqrt(3)
-    # dt = (dist/vs) - (dist/vp) -0.5 # in seconds
-    dt = 1+dist/50.
-    p = max(trace[int((pickindex-1)*df):int((pickindex+dt)*df)])
-    s = max(trace[int((pickindex+dt)*df):])
-    plt.axvline(x=pickindex-1, color='gray', alpha=0.1)
-    plt.axvline(x=pickindex+dt, color='gray', alpha=0.1)
-    print('The automatic picked P and S maximum:\n', p,s)
+    dt = (dist/3.5) - (dist/6) -0.5 # in seconds
+    # dt = 1+dist/50.
+    p_wind = 2  # seconds, P window
+    s_wind = 5  # seconds, s window
+    p = max(trace[int((pickindex-1)*df):int((pickindex+p_wind)*df)])
+    s = max(trace[int((pickindex+dt)*df):int((pickindex+dt+s_wind)*df)])
     return p, s
 
 
 def AskIfSPRatioIsGood(traces, station, pick, dist, soverp):
     print('Old ratio is %s' %soverp)
-    p,s = AskForPSAmplitudes(traces, station, pick, dist)
+    sp = get_spratio(traces, station, pick, dist)
 
-    return p,s
+    return sp
 
 
 # Run HASH 
@@ -831,53 +914,84 @@ def GetKaganMisfit(angles, pcnt):
     misfit = avg/maxkagan
     return misfit
 
+def create_HASH_runfile(hashfile, polfile, params, ID):
+    """
+    Make inputfile for HASH
+    hashfile: (str) Name of HASH input file
+    polfile: (str) Name of polarity file
+    params: parameter dictionary
+    ID: (str) Event identification number
+    """
+    goodpol = 0
+    with open(polfile, 'r') as pf:
+        for n, line in enumerate(pf):
+            if n > 0:
+                line = line.split()
+                try:
+                    goodpol += int(line[2])
+                except IndexError:
+                    continue
 
-def RunHASH(eventID, workdir):
-    """Call an instance of Hash, """
-    controlfile = workdir + eventID + '.inp'
-    polfile = workdir + eventID + '.pol.hash'
-    allresultsfile = workdir + eventID + '.all.fps'
-    resultfile = workdir + eventID + '.fps'
-    with open('hashpy.inp', 'r') as hashin:
-        with open(controlfile, 'w') as ctrlfile:
-            for l, line in enumerate(hashin):
-                if l==0: ctrlfile.write(polfile + '\n')
-                elif l==1: ctrlfile.write(allresultsfile + '\n')
-                elif l==2: ctrlfile.write(resultfile + '\n')
-                else: ctrlfile.write(line)
-    out, err, ret = runBash("./hashchilesp < " + controlfile) #run HASH
+    badpol = n - goodpol
+
+    #  Ask to overwrite bad polarity readings
+    while True:
+        print('(ENTER) confirm {:d} bad polarity readings, or type'.format(badpol))
+        print('(integer) number of bad polartiy readings.')
+        ans = input('')
+        if ans == '':
+            break
+        try:
+            badpol = int(ans)
+            break
+        except ValueError:
+            continue
+
+    badfrac = badpol/n
+
+    with open(hashfile, 'w') as hf:
+        hf.write('{:}/{:}.pol.hash\n'.format(params['RESULTS'], ID))
+        hf.write(params['STATIONS'] + '\n')
+        hf.write('{:}/{:}.fps\n'.format(params['RESULTS'], ID))
+        hf.write('{:}/{:}.all.fps\n'.format(params['RESULTS'], ID))
+        hf.write('{:}/{:}.rays\n'.format(params['RESULTS'], ID))
+        hf.write('{:}\n'.format(params['dang']))
+        hf.write('{:}\n'.format(params['nmc']))
+        hf.write('{:}\n'.format(params['maxout']))
+        hf.write('{:}\n'.format(badfrac))
+        hf.write('{:}\n'.format(params['qbadfac']))
+        hf.write('{:}\n'.format(params['cangle']))
+        hf.write('{:}\n'.format(params['prob_max']))
+        hf.write('{:}\n'.format(len(params['VELOCITIES'])))
+        for vz in params['VELOCITIES']:
+            hf.write('{:}\n'.format(vz))
+
+
+def RunHASH(controlfile):
+    """Call an instance of HASH"""
+    with open(controlfile, 'r') as cf:
+        for n, line in enumerate(cf):
+            if n == 2:
+                resultfile = line.strip()
+    out, err, ret = runBash("./hash_hashpy1D < " + controlfile) #run HASH
     ret = 0
     if ret != 0:
         msg = 'HASH endend with an error:\n' + str(err)
         warn(msg)
     else:
-        print(('Done! Results written to ' + resultfile))
-        with open(resultfile, 'r') as rf:
-            result = rf.read()
-        strike, dip, rake, polaritymisfit, stationdistributionratio, amplitudemisfit = result.split()
-        nobs = sum(1 for line in open(polfile)) - 1
-        # misfit = (float(amplitudemisfit) + float(polaritymisfit) + (1-float(stationdistributionratio)))/100
+        print('Done! Results')
+    print(out.decode('utf8'))
+    ang_rms = np.inf
+    qual = 'Z'  # worst quality ever
+    with open(resultfile, 'r') as rf:
+        for n, line in enumerate(rf):
+            if line.split()[4] <= qual and float(line.split()[3]) <= ang_rms:
+                strike, dip, rake, ang_rms = map(int, line.split()[0:4])
+                qual = line.split()[4]
+    if n > 0:
+        warn('Found multiple solutions. Reporting best one.')
 
-        ## quality with the kagans angles between preferred and best solutions
-        m0 = mtt.magnitude_to_moment(3.)
-        mt = mtt.MomentTensor(strike=float(strike), dip=float(dip), rake=float(rake), scalar_moment=m0)
-
-        kagans = []
-        with open(allresultsfile) as file:
-            for line in file:
-                line = line.rsplit()
-                str2 = line[0]
-                dip2 = line[1]
-                rake2 = line[2]
-                mt2 = mtt.MomentTensor(strike=float(str2), dip=float(dip2), rake=float(rake2), scalar_moment=m0)
-                
-                kagan = mtt.kagan_angle(mt, mt2)
-                kagans.append(kagan)
-
-        misfit = GetKaganMisfit(kagans, nobs)
-        print('Misfit: %s' %(misfit))
-
-    return strike, dip, rake, misfit
+    return strike, dip, rake, ang_rms
 
 
 def runBash(cmd):
@@ -887,14 +1001,12 @@ def runBash(cmd):
     err = p.stderr.read().strip()
     p.poll()
     ret = p.returncode
-    # print out, err, ret
     return out, err, ret
 
 
 def WriteMechanismToHypfile(hypfile, strike, dip, rake, quality, nobs, workdir):
-    basename = hypfile.split('/')[-1].replace('.qml.', '.fps.')
+    basename = hypfile.split('/')[-1]
     hypfileout = workdir + '/' + basename
-    print(hypfileout)
     with open(hypfile, 'r') as infile:
         with open(hypfileout, 'w') as outfile:
             for inline in infile:
@@ -907,13 +1019,14 @@ def WriteMechanismToHypfile(hypfile, strike, dip, rake, quality, nobs, workdir):
                 else:
                     outline = inline
                 outfile.write(outline)
+    return hypfileout
 
 
-def PlotMechanism(eventID, workdir):
-    polfile = workdir + eventID + '.pol.hash'
-    allresultsfile = workdir + eventID + '.all.fps'
-    resultfile = workdir + eventID + '.fps'
-    plotfile = workdir + eventID + '.ps'
-    _, _, _ = runBash("./plot_mechanism.sh " + allresultsfile + " " + resultfile + " " + polfile + " " + plotfile) #run plotting script
-    # _, _, _ = runBash("gv " + plotfile) #run gv
-    # print("Made plot. Execute:\nevince " + plotfile + "\nto view.")
+def PlotMechanism(resultdir, hypfile, ID):
+    allfpsf = resultdir + ID + '.all.fps'
+    angf = resultdir + ID + '.rays'
+    plotfile = resultdir + ID + '.ps'
+    cmd = './plot_mechanism.sh {:} {:} {:} {:}'.format(
+            hypfile, allfpsf, angf, plotfile)
+    _, _, _ = runBash(cmd) #run plotting script
+    _, _, _ = runBash("gv " + plotfile) #run gv

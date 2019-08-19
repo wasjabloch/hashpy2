@@ -1,0 +1,13 @@
+CATALOG: ./hyp/*.hyp
+RESULTS: ./results
+WAVEFORMS: ./events
+STATIONS: stations.nll
+VELOCITIES:
+    - vmodel.zv
+LOGGING: WARNING
+dang: 1
+nmc: 50
+maxout: 100
+cangle: 45
+prob_max: 0.2
+qmismax: 0.2

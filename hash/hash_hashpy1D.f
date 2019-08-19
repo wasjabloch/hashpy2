@@ -24,8 +24,8 @@ c variables for polarity information, input to HASH subroutines
       character*3 scomp(npick0)                        ! station component
       character*2 snet(npick0)                         ! network code
       character*1 pickpol,pickonset                    ! polarity pick : U, u, +, D, d, or - ; onset, I or E
-      integer p_pol(npick0),spol                       ! polarity pick (+/-1), and reversal (+/-1)
-      real sp_ratio(npick0),spin                       ! S/P ratio (log10)
+      integer p_pol(npick0),qp                         ! polarity pick (+/-1), and reversal (+/-1)
+      real sp_ratio(npick0),spout(npick0)              ! log10(S/Pratio), S/P ratio
       real p_azi_mc(npick0,nmc0),p_the_mc(npick0,nmc0) ! azimuth and takeoff angle for each trial
       integer index(nmc0)                              ! index into velocity models, for each trial
       real qdep2(nmc0)                                 ! new depth, for each trail
@@ -41,20 +41,19 @@ c variables for set of acceptable mechanisms, output of HASH subroutines
       real var_est(2,5),var_avg(5)                     ! variance of each plane, average
       real mfrac(5),stdr(5),mavg(5)                    ! fraction misfit polarities, station distribution       
       real prob(5)                                     ! probability true mechanism is "close" to preferred solution(s)
-      character*1 qual(5),mflag                        ! solution quality rating, multiple flag
+      character*1 qual(5)                              ! solution quality rating
+      character*10 flag                                ! flag for best or perturbed take-off angle
 c
 c control parameters
-      integer npolmin                                  ! minimum number of observations
       real delmax                                      ! maximum station distance
       real dang,dang2                                  ! grid angle to sample focal sphere
       integer maxout                                   ! max number of acceptable mechanisms output
       real badfrac                                     ! assumed rate of polarity error (fraction)
       real cangle                                      ! definition of "close" == 45 degrees
-      real ratmin                                      ! minimum allowed signal to noise ratio
       real qbadfac                                     ! assumed noise in amplitude ratios, log10 (0.3 for factor of 2)
 c
 c file names
-      character*100 outfile1,outfile2,  corfile,fpfile
+      character*100 outfile1,outfile2,outfile3,corfile,fpfile
       character*100 stfile,plfile,ampfile
       
       degrad=180./3.1415927
@@ -75,8 +74,9 @@ c file names
       read (*,'(a)') outfile2
       open (14,file=outfile2)
 
-      print *,'Enter mininum number of data (e.g., 8)'
-      read *,npolmin
+      print *,'Enter output file name for take-off angles'
+      read (*,'(a)') outfile3
+      open (15,file=outfile3)
 
       print *,'Enter grid angle for focal mech search, in degrees 
      &  (max ',dang0,')'
@@ -89,9 +89,6 @@ c file names
       print *,'Enter maxout for focal mech. output (e.g., 500)'
       read *,maxout
 
-      print *,'Enter minimum allowed signal to noise ratio'
-      read *,ratmin
-      
       print *,'Enter fraction polarities assumed bad'
       read *,badfrac
 
@@ -114,7 +111,8 @@ c read in earthquake location, etc. (hashpy format)
 120   continue
       read (11,125,end=505) iyr,imon,idy,ihr,imn,qsec,qlat,
      &                qlon,qdep,seh,sez,icusp
-125   format (5i2,1x,f5.2,1x,f10.6,1x,f10.6,1x,f9.6,1x,2f5.2,1x,a46)
+125   format (i4,1x,i2,1x,i2,1x,i2,1x,i2,1x,f5.2,1x,f10.6,1x,f10.6,1x,
+     &        f9.6,1x,f5.2,1x,f5.2,1x,a46)
 
       aspect=cos(qlat/degrad)
 
@@ -127,13 +125,14 @@ c choose a new source location and velocity model for each trial
         index(nm)=mod(nm,ntab)+1  ! index used to choose velocity model
       end do
 
-c read in polarities       ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT FORMAT **
+c read in polarities
       k=1
       nspr=0
 130   continue
-      read (11,*,end=140) iname,pickpol,qdist,qazi,qthe,sazi,sthe,s2p
+      read (11,*,end=140) iname,pickpol,qp,s2p
        if (iname.eq.'     ')  goto 140 ! end of data for this event
        sname(k)=iname
+       spout(k)=s2p
         if (sname(k).eq.'    ')  goto 140 ! end of data for this event
         call GETSTAT_NLL(stfile,sname(k),
      &               flat,flon,felv)   ! NonLinLoc station format
@@ -169,11 +168,9 @@ c read in polarities       ! SCEDC format - ** YOU MAY NEED TO CHANGE THE INPUT 
       nppl=k-1
 
 cc view polarity data
-c      do k=1,nppl
-c      do m=1,nmc
-c        print *,k,sname(k),p_azi_mc(k,m),p_the_mc(k,m),p_pol(k)
-c      end do
-c      end do
+      do k=1,nppl
+        print *,k,sname(k),p_azi_mc(k,1),p_the_mc(k,1),p_pol(k)
+      end do
 
       if (nppl.lt.1) then
         print *,'*** warning - no p-wave polarity data for event',
@@ -184,12 +181,11 @@ c      end do
      &            icusp
       end if
       
-      nmismax=max(nint(nppl*badfrac),2)                    
-      nextra=max(nint(nppl*badfrac*0.5),2)
-      qmismax=max(nspr*qbadfac,2.0)                    
+      nmismax=nint(nppl*badfrac) !max(nint(nppl*badfrac),2)                    
+      nextra=0 !max(nint(nppl*badfrac*0.5),0)
+      qmismax=nspr*qbadfac !max(nspr*qbadfac,2.0)                    
       qextra=max(nspr*qbadfac*0.5,2.0)
 
-      print *,npol,nppl
       call FOCALAMP_MC(p_azi_mc,p_the_mc,sp_ratio,p_pol,nppl,nmc,
      &    dang2,nmax0,nextra,nmismax,qextra,qmismax,nf2,strike2,dip2,
      &    rake2,f1norm,f2norm)
@@ -228,25 +224,41 @@ c solution quality rating, completely ad-hoc - make up your own!
        
       do i=1,nmult
       write (13,*) nint(str_avg(i)),nint(dip_avg(i)),nint(rak_avg(i)),
-     & nint(100*mfrac(i)),nint(100*stdr(i)),nint(100*mavg(i))
+     & nint(var_avg(i)), qual(i)
 c ,qual(i)
       end do
      
-c output set of acceptable mechanisms  ** YOU MAY WISH TO CHANGE THEOUTPUT FORMAT **
+c output set of acceptable mechanisms
       do 500 ic=1,nout1
       write (14,550) strike2(ic),dip2(ic),rake2(ic),
      & f1norm(1,ic),f1norm(2,ic),f1norm(3,ic),
      & f2norm(1,ic),f2norm(2,ic),f2norm(3,ic)
-c      write (13,550) f1norm(1,ic),f1norm(2,ic),f1norm(3,ic),
-c     &     f2norm(1,ic),f2norm(2,ic),f2norm(3,ic)
+
 550   format (f6.1,2x,f6.1,2x,f6.1,2x,
      & f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5)
-c550   format (f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x,f8.5,2x)
+
 500   continue
+
+c output takeoff angles
+      do k=1,nppl
+      do m=1,nmc
+        if (m.eq.1) then
+            flag='best_angle'
+        else
+            flag='pert_angle'
+        end if
+        write (15,560) sname(k),p_azi_mc(k,m),p_the_mc(k,m),p_pol(k),
+     & spout(k),flag
+
+560   format (a5,1x,f6.2,2x,f6.2,2x,i2,2x,f8.4,2x,a10)
+      end do
+      end do
+
       
 505   continue
       close(11)
       close(12)
       close(13)
+      close(14)
       stop
       end

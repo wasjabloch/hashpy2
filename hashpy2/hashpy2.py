@@ -8,8 +8,8 @@ polarities, P to S amplitude ratios and invert for focal mechanisms
 import logging
 import yaml
 import argparse
+import sys
 from glob import glob
-from sys import argv
 from subprocess import Popen, PIPE
 from warnings import warn
 from os.path import isfile
@@ -22,19 +22,37 @@ logging.basicConfig(level=logging.INFO)
 
 par = argparse.ArgumentParser(prog='hashpy2',
                               description='An interactive HASH wrapper')
-par.add_argument('ID', type=str, help="Origin time of event in format: YYYYMMDDhhmmss")
-par.add_argument('--config', type=str, help="Configuration file", default="config.yaml")
-#par.add_argument('--review', action="store_true", help="Review existing polarity amplitude data")
-#par.add_argument('--add', action="store_true", help="Add more observations to existing data")
+par.add_argument('ID', type=str,
+                 nargs='?',
+                 help="Origin time of event in format: YYYYMMDDhhmmss",
+                 default=None)
+par.add_argument('--config', type=str,
+                 help="Configuration file",
+                 default="config.yaml")
+par.add_argument('--setup', action="store_true",
+                 help=('Print configuration tipps. ' +
+                       'Produce default_config.yaml.'))
 
 print("This is hashpy2")
 
 args = par.parse_args()
 ID = args.ID
+
+if args.setup:
+    defaultf = 'default_config.yaml'
+    hu.print_config_tipps()
+    hu.write_default_config(defaultf)
+    sys.exit('Default configuration file written to: ' + defaultf)
+
+if not ID:
+    sys.exit('Give event ID as argument')
+
+#  Read config file
 configfile = args.config
 with open(configfile, 'r') as stream:
     params = yaml.safe_load(stream)
 
+#  Set directories
 resultdir = params['RESULTS'] + '/'
 hashfile = resultdir + ID + '.pol.hash'
 ctrlfile = resultdir + ID + '.inp'
@@ -42,17 +60,17 @@ wvdir = params['WAVEFORMS'] + '/'
 stationfile = params['STATIONS']
 hypfiles = glob(params['CATALOG'])
 
+#  Get event information and seismic traces
 timestamp = hu.time_from_ID(ID)
 event, hypfile = hu.get_event(timestamp, hypfiles)
 traces = hu.make_traces(timestamp, wvdir)
-
 stations = set([str(t.stats.station) for t in traces])
 distance = hu.dist2stations(stations, event, stationfile)
 
 logging.info('Found waveforms for %s stations', len(stations))
 logging.info('and %s of them have available coordinates\n', len(distance))
 
-review = False
+#  Ask what to do if .pol.hash is present
 dowaveforms = True
 doadd = False
 if isfile(hashfile):
@@ -61,65 +79,14 @@ if isfile(hashfile):
     print('It has ' + str(nobs) + ' observations.')
     print('What should I do?')
     msg = ('(c)ompute focal mechanism\n' +
-           '(o)verwrite\n' +
-           '(r)eview, or\n' +
            '(a)dd missing stations?\n')
     ans = []
-    while ans not in ['c', 'o', 'r', 'a']:
+    while ans not in ['c', 'a']:
         ans = input(msg)
-        if ans == 'n':
+        if ans == 'c':
             dowaveforms = False
         elif ans == 'a':
             doadd = True
-        elif ans == 'r':
-            review = True
-            dowaveforms = False
-
-# Review #
-##########
-if review:
-    outbuffer = []
-    with open(hashfile, 'r') as hf:
-        filedata = hf.readlines()
-    try:
-        for l, line in enumerate(filedata):
-            if l == 0:
-                pass
-            else:
-                station, pol, dist, azi, dip, aerr, derr, soverp = line.split()
-                dist = float(dist)
-                pick = hu.PickRequest(traces, station, event, dist)
-                ans = hu.AskIfPolarityIsGood(traces, station, event, pick, dist, pol)
-                if ans in ['+', '-']:
-                    pol = ans
-                    isvalid = True
-                elif ans in ['x']:
-                    filedata[l] = ''
-                    isvalid = False
-                elif ans in ['a']:
-                    isvalid = True
-                    pol = line.rsplit()[1]
-                else:
-                    isvalid = False
-
-                if isvalid:
-                    p, s = hu.AskIfSPRatioIsGood(traces, station, pick, dist, soverp)
-                    if p is 'x':
-                        isvalid = False
-                if isvalid:
-                    filedata[l] = ('{:5s} {:1s} {:6.4f} {:03.0f} {:2.0f} ' +
-                                   '{:03.0f} {:03.0f} {:08.3f}\n').format(
-                                       station, pol, float(dist), float(azi),
-                                       float(dip), 5, 5, s/p)
-
-    except KeyboardInterrupt:
-        with open(hashfile, 'w') as hf:
-            hf.writelines(filedata)
-        print('KillingTheProcessOnPurpose')
-
-    with open(hashfile, 'w') as hf:
-        hf.writelines(filedata)
-
 
 # Do waveforms #
 ################
@@ -158,30 +125,32 @@ if dowaveforms:
             logging.info('\nThis is station %s, %s of %s', station, ii, nsta)
             oldstations.append(station)
             pick = hu.PickRequest(traces, station, event, dist)
-            pol, isvalid = hu.MakePolarityRequest(traces, station, event, pick, dist)
+            pol, qp, leave = hu.AskForPolarity(traces, station, event, pick, dist)
             if pol in ['+', '-']:
-                p, s, isvalid = hu.MakeAmplitudeRequest(traces, station, pick, dist)
-            if isvalid:
-                outline = '{:5s} {:1s} {:08.3f}\n'.format(station, pol, s/p)
+                sp = hu.get_spratio(traces, station, pick, dist)
+                outline = '{:5s} {:1s} {:1d} {:08.3f}\n'.format(station, pol,
+                                                                qp, sp)
                 with open(hashfile, 'a') as hf:
                     hf.writelines(outline)
+            if leave:
+                break
 
 # Run HASH #
 ############
-#ans = []
-#while ans not in ['y', 'n']:
-#    ans = input('Want to run HASH now? (y/n)')
-#if ans == 'y':
-#    nobs = sum(1 for line in open(hashfile)) - 1
-#    strike, dip, rake, misfit = RunHASH(sID, resultdir)
-#    print(strike, dip, rake, misfit)
-#    hu.WriteMechanismToHypfile(hypfile, strike, dip, rake, misfit, nobs, resultdir)
-#    hu.PlotMechanism(sID, resultdir)
+ans = []
+while ans not in ['y', 'n']:
+    ans = input('Want to run HASH now? (y/n)')
+if ans == 'y':
+    hu.create_HASH_runfile(ctrlfile, hashfile, params, ID)
+    nobs = sum(1 for line in open(hashfile)) - 1
+    strike, dip, rake, misfit = hu.RunHASH(ctrlfile)
+    print(strike, dip, rake, misfit)
+    new_hypfile = hu.WriteMechanismToHypfile(hypfile, strike, dip, rake, misfit, nobs, resultdir)
+    hu.PlotMechanism(resultdir, new_hypfile, ID)
 
-#    print(KillingTheProcessOnPurpose)
 
-#    # the terminal will be open/activated the whole time
-#    # has to be killed manually with the except clause!! 
+    # the terminal will be open/activated the whole time
+    # has to be killed manually with the except clause!! 
 #    try:
 #        cmd = 'ID=$(xdotool getactivewindow); while true; do sleep 0.2; xdotool windowfocus $ID; done;'
 #        p   = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
