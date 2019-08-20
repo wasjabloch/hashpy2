@@ -10,24 +10,26 @@ import yaml
 import argparse
 import sys
 from glob import glob
-from subprocess import Popen, PIPE
-from warnings import warn
 from os.path import isfile
 from numpy import cos, pi
 import hashpy_utilities as hu
 
 
-
 logging.basicConfig(level=logging.INFO)
 
 par = argparse.ArgumentParser(prog='hashpy2',
-                              description='An interactive HASH wrapper')
+                              description='An interactive HASH wrapper',
+                              epilog=('Authors: Wasja Bloch ' +
+                                      '(wasja@gfz-potsdam.de) ' +
+                                      'and Lukas Lehmann ' +
+                                      '(luklehma@uni-potsdam.de)'))
+
 par.add_argument('ID', type=str,
                  nargs='?',
                  help="Origin time of event in format: YYYYMMDDhhmmss",
                  default=None)
 par.add_argument('--config', type=str,
-                 help="Configuration file",
+                 help="Configuration file [config.yaml]",
                  default="config.yaml")
 par.add_argument('--setup', action="store_true",
                  help=('Print configuration tipps. ' +
@@ -45,12 +47,15 @@ if args.setup:
     sys.exit('Default configuration file written to: ' + defaultf)
 
 if not ID:
-    sys.exit('Give event ID as argument')
+    par.print_help()
+    sys.exit()
 
 #  Read config file
 configfile = args.config
 with open(configfile, 'r') as stream:
     params = yaml.safe_load(stream)
+logging.basicConfig(level=params['LOGGING'])
+
 
 #  Set directories
 resultdir = params['RESULTS'] + '/'
@@ -59,6 +64,7 @@ ctrlfile = resultdir + ID + '.inp'
 wvdir = params['WAVEFORMS'] + '/'
 stationfile = params['STATIONS']
 hypfiles = glob(params['CATALOG'])
+
 
 #  Get event information and seismic traces
 timestamp = hu.time_from_ID(ID)
@@ -97,14 +103,14 @@ if dowaveforms:
     slat = o.latitude_errors['uncertainty']*111.2
     slon = o.longitude_errors['uncertainty']*111.2*cos(lat*pi/180)
     sh = (slat+slon)/2
-    z = o.depth/1000. # in km
+    z = o.depth/1000.  # in km
     sz = o.depth_errors['uncertainty']/1000
     t = o.time
 
     if doadd:
         with open(hashfile, 'r') as hf:
             lines = hf.readlines()
-        oldstations = [l.split()[0] for l in lines if l != 0]
+        oldstations = [line.split()[0] for line in lines if line != 0]
     else:
         header = ('{:04d} {:02d} {:02d} {:02d} {:02d} {:05.2f} ' +
                   '{:010.6f} {:010.6f} {:09.6f} {:05.2f} ' +
@@ -118,14 +124,16 @@ if dowaveforms:
 
     nsta = len(distance)
     onsta = len(oldstations)
-    logging.info('Skipping %s previously picked stations: %s', onsta, ', '.join(oldstations))
+    logging.info('Skipping %s previously picked stations: %s',
+                 onsta, ', '.join(oldstations))
     for ii, station in enumerate(sorted(distance, key=distance.get)):
         dist = distance[station]
         if station not in oldstations:
             logging.info('\nThis is station %s, %s of %s', station, ii, nsta)
             oldstations.append(station)
             pick = hu.PickRequest(traces, station, event, dist)
-            pol, qp, leave = hu.AskForPolarity(traces, station, event, pick, dist)
+            pol, qp, leave = hu.AskForPolarity(traces, station, event, pick,
+                                               dist)
             if pol in ['+', '-']:
                 sp = hu.get_spratio(traces, station, pick, dist)
                 outline = '{:5s} {:1s} {:1d} {:08.3f}\n'.format(station, pol,
@@ -144,20 +152,23 @@ if ans == 'y':
     hu.create_HASH_runfile(ctrlfile, hashfile, params, ID)
     nobs = sum(1 for line in open(hashfile)) - 1
     strike, dip, rake, misfit = hu.RunHASH(ctrlfile)
-    print(strike, dip, rake, misfit)
-    new_hypfile = hu.WriteMechanismToHypfile(hypfile, strike, dip, rake, misfit, nobs, resultdir)
+    print('Strike: Dip: Rake: RMS: (deg)')
+    print('{: 6.0f}  {: 3.0f}  {: 4.0f}  {: 3.0f}'.format(
+        strike, dip, rake, misfit))
+    new_hypfile = hu.WriteMechanismToHypfile(hypfile, strike, dip, rake,
+                                             misfit, nobs, resultdir)
     hu.PlotMechanism(resultdir, new_hypfile, ID)
 
 
-    # the terminal will be open/activated the whole time
-    # has to be killed manually with the except clause!! 
+# the terminal will be open/activated the whole time
+# has to be killed manually with the except clause!!
 #    try:
-#        cmd = 'ID=$(xdotool getactivewindow); while true; do sleep 0.2; xdotool windowfocus $ID; done;'
+#        cmd = ('ID=$(xdotool getactivewindow); while true; do sleep 0.2; ' +
+#               'xdotool windowfocus $ID; done;')
 #        p   = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
-#        main(sID)   
-#    except Exception as e: 
+#        main(sID)
+#    except Exception as e:
 #        print(e)
 #        cmd = 'pkill -f xdotool'
 #        p   = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
 #        exit()
-
