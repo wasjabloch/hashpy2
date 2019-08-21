@@ -932,11 +932,11 @@ def RunHASH(controlfile):
     ang_rms = np.inf
     qual = 'Z'  # worst quality ever
     with open(resultfile, 'r') as rf:
-        for n, line in enumerate(rf):
+        for nn, line in enumerate(rf):
             if line.split()[4] <= qual and float(line.split()[3]) <= ang_rms:
                 strike, dip, rake, ang_rms = map(int, line.split()[0:4])
                 qual = line.split()[4]
-    if n > 0:
+    if nn > 0:
         logging.warning('Found multiple solutions. Reporting best one.')
 
     return strike, dip, rake, ang_rms
