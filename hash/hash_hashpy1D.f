@@ -5,25 +5,16 @@ c Uses P polarities and S/P amplitude ratios.
       include 'rot.inc'
 
 c variables for storing earthquake input information  
-      integer icusp,icusp2          ! event ID
+      integer icusp                 ! event ID
       real qlat,qlon,qdep           ! location
-      real qmag                     ! magnitude
       integer iyr,imon,idy,ihr,imn  ! origin time, year, month, day, hour, minute
       real qsec                     ! origin time, seconds
       real seh, sez                 ! location error, horizontal & vertical 
-      real rms                      ! residual travel time error 
-      real terr                     ! origin time error 
-      character*1 evtype            ! event type
-      character*1 magtype           ! magnitude type
-      character*1 locqual           ! location quality
-      character*1 cns,cew           ! north/south and east/west codes
 c
 c variables for polarity information, input to HASH subroutines
       character*5 sname(npick0)                        ! station name
       character*5 iname                                ! station name
-      character*3 scomp(npick0)                        ! station component
-      character*2 snet(npick0)                         ! network code
-      character*1 pickpol,pickonset                    ! polarity pick : U, u, +, D, d, or - ; onset, I or E
+      character*1 pickpol                              ! polarity pick : U, u, +, D, d, or - ; onset, I or E
       integer p_pol(npick0),qp                         ! polarity pick (+/-1), and reversal (+/-1)
       real sp_ratio(npick0),spout(npick0)              ! log10(S/Pratio), S/P ratio
       real p_azi_mc(npick0,nmc0),p_the_mc(npick0,nmc0) ! azimuth and takeoff angle for each trial
@@ -45,7 +36,7 @@ c variables for set of acceptable mechanisms, output of HASH subroutines
       character*10 flag                                ! flag for best or perturbed take-off angle
 c
 c control parameters
-      real delmax                                      ! maximum station distance
+      real del, delmax                                 ! maximum station distance
       real dang,dang2                                  ! grid angle to sample focal sphere
       integer maxout                                   ! max number of acceptable mechanisms output
       real badfrac                                     ! assumed rate of polarity error (fraction)
@@ -89,8 +80,11 @@ c file names
       print *,'Enter maxout for focal mech. output (e.g., 500)'
       read *,maxout
 
-      print *,'Enter fraction polarities assumed bad'
-      read *,badfrac
+      print *,'Enter maximum allowed source receiver distance'
+      read *,delmax
+
+      print *,'Enter number of polarities assumed bad'
+      read *,nmismax
 
       print *,'Enter the assumed noise in amplitude ratios, log10  
      &  (e.g. 0.3 for a factor of 2)'
@@ -129,17 +123,17 @@ c read in polarities
       k=1
       nspr=0
 130   continue
-      read (11,*,end=140) iname,pickpol,qp,s2p
+      read (11,*,end=140) iname,pickpol,qp,s2p,del
        if (iname.eq.'     ')  goto 140 ! end of data for this event
        sname(k)=iname
        spout(k)=s2p
-        if (sname(k).eq.'    ')  goto 140 ! end of data for this event
         call GETSTAT_NLL(stfile,sname(k),
      &               flat,flon,felv)   ! NonLinLoc station format
         if (flat.eq.999.) go to 130
         dx=(flon-qlon)*111.2*aspect
         dy=(flat-qlat)*111.2
         range=sqrt(dx**2+dy**2)
+        if (range.gt.delmax) go to 130
         qazi=90.-atan2(dy,dx)*degrad
         if (qazi.lt.0.) qazi=qazi+360.
         if (pickpol.eq.'U'.or.
@@ -181,7 +175,6 @@ cc view polarity data
      &            icusp
       end if
       
-      nmismax=nint(nppl*badfrac) !max(nint(nppl*badfrac),2)                    
       nextra=0 !max(nint(nppl*badfrac*0.5),0)
       qmismax=nspr*qbadfac !max(nspr*qbadfac,2.0)                    
       qextra=max(nspr*qbadfac*0.5,2.0)

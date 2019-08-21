@@ -880,7 +880,21 @@ def create_HASH_runfile(hashfile, polfile, params, ID):
         except ValueError:
             continue
 
-    badfrac = badpol/n
+    # Ask to override maximum distance
+    delmax = 20040  # half earth circumference
+    while True:
+        print(('(ENTER) confirm {:.0f} km maximum source receiver distance, ' +
+               'or type').format(delmax))
+        print('(float) km maximum source receiver distance.')
+        ans = input('')
+        if ans == '':
+            break
+        try:
+            delmax = float(ans)
+            break
+        except ValueError:
+            continue
+
 
     with open(hashfile, 'w') as hf:
         hf.write('{:}/{:}.pol.hash\n'.format(params['RESULTS'], ID))
@@ -891,7 +905,8 @@ def create_HASH_runfile(hashfile, polfile, params, ID):
         hf.write('{:}\n'.format(params['dang']))
         hf.write('{:}\n'.format(params['nmc']))
         hf.write('{:}\n'.format(params['maxout']))
-        hf.write('{:}\n'.format(badfrac))
+        hf.write('{:}\n'.format(delmax))
+        hf.write('{:}\n'.format(badpol))
         hf.write('{:}\n'.format(params['qbadfac']))
         hf.write('{:}\n'.format(params['cangle']))
         hf.write('{:}\n'.format(params['prob_max']))
@@ -906,7 +921,7 @@ def RunHASH(controlfile):
         for n, line in enumerate(cf):
             if n == 2:
                 resultfile = line.strip()
-    out, err, ret = runBash("./hash_hashpy1D < " + controlfile)  # run HASH
+    out, err, ret = runBash("../hash/hash_hashpy1D < " + controlfile)
     ret = 0
     if ret != 0:
         msg = 'HASH endend with an error:\n' + str(err)

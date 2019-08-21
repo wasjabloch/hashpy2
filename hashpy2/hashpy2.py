@@ -136,8 +136,8 @@ if dowaveforms:
                                                dist)
             if pol in ['+', '-']:
                 sp = hu.get_spratio(traces, station, pick, dist)
-                outline = '{:5s} {:1s} {:1d} {:08.3f}\n'.format(station, pol,
-                                                                qp, sp)
+                outline = '{:5s} {:1s} {:1d} {:08.3f}\n'.format(
+                        station, pol, qp, sp)
                 with open(hashfile, 'a') as hf:
                     hf.writelines(outline)
             if leave:
