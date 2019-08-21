@@ -36,7 +36,7 @@ if(plunge<0){plunge=-plunge; bearing+=180}
 if(bearing<0){bearing=bearing+360;}
 if(bearing>360){bearing=bearing-360;}
 printf("%i/%i\n",plunge, bearing);}' $angf |
-python stereonet.py --lines |
+stereonet.py --lines |
   psxy -J$J -Rd -Sp4p -Gsalmon -K -O >> $outfile
 
 
@@ -47,7 +47,7 @@ if(plunge<0){plunge=-plunge; bearing+=180}
 if(bearing<0){bearing=bearing+360;}
 if(bearing>360){bearing=bearing-360;}
 printf("%i/%i\n",plunge, bearing);}'|
-python stereonet.py --lines > /tmp/coordinates
+stereonet.py --lines > /tmp/coordinates
 
 
 #  get station names
@@ -79,12 +79,12 @@ paste /tmp/coordinates /tmp/names |
 
 
 #  get axis
-echo $sdr | python3 strdiprake2ptnaxes.py -l | awk '{print $1}' |  
-  python stereonet.py --lines | awk '{print $1, $2, "P"}' |
+echo $sdr | strdiprake2ptnaxes.py -l | awk '{print $1}' |  
+  stereonet.py --lines | awk '{print $1, $2, "P"}' |
    pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
 
-echo $sdr | python3 strdiprake2ptnaxes.py -l | awk '{print $2}' |  
-  python stereonet.py --lines | awk '{print $1, $2, "T"}' |
+echo $sdr | strdiprake2ptnaxes.py -l | awk '{print $2}' |  
+  stereonet.py --lines | awk '{print $1, $2, "T"}' |
   pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
 
 

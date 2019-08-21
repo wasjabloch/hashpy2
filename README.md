@@ -3,8 +3,20 @@
 hashpy2 is an interactive HASH [1] wrapper to meassure earthquake P wave first
 motion polarities and S/P amplitude ratios and to compute focal mechanisms.
 
+To install add the subfolders hashpy2 and hash to your PATH variable and make
+sure that the files:
 
-HASH is a collection of fortran routines written by Jeane Hardebeck and
+hashpy2/hashpy2.py
+hashpy2/strdiprake2ptnaxes.py
+hashpy2/stereonet.py
+hashpy2/plot_mechanism.sh
+hash/hash_hashpy1D
+
+are executeable. Then execute the hashpy2.py in your working directory. Make
+sure that a config.yaml is present.
+
+
+[1] HASH is a collection of fortran routines written by Jeane Hardebeck and
 Peter M. Shearer. The original source code can be found at:
 
 https://earthquake.usgs.gov/research/software/index.php#HASH

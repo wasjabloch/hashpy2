@@ -921,7 +921,7 @@ def RunHASH(controlfile):
         for n, line in enumerate(cf):
             if n == 2:
                 resultfile = line.strip()
-    out, err, ret = runBash("../hash/hash_hashpy1D < " + controlfile)
+    out, err, ret = runBash("hash_hashpy1D < " + controlfile)
     ret = 0
     if ret != 0:
         msg = 'HASH endend with an error:\n' + str(err)
@@ -977,7 +977,8 @@ def PlotMechanism(resultdir, hypfile, ID):
     allfpsf = resultdir + ID + '.all.fps'
     angf = resultdir + ID + '.rays'
     plotfile = resultdir + ID + '.ps'
-    cmd = './plot_mechanism.sh {:} {:} {:} {:}'.format(
+    cmd = 'plot_mechanism.sh {:} {:} {:} {:}'.format(
             hypfile, allfpsf, angf, plotfile)
-    _, _, _ = runBash(cmd)  # run plotting script
+    out, _, _ = runBash(cmd)  # run plotting script
+    logging.info('The plotting script returned:\n' + out.decode('utf-8'))
     _, _, _ = runBash("gv " + plotfile)  # run gv

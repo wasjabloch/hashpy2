@@ -123,7 +123,7 @@ c read in polarities
       k=1
       nspr=0
 130   continue
-      read (11,*,end=140) iname,pickpol,qp,s2p,del
+      read (11,*,end=140) iname,pickpol,qp,s2p
        if (iname.eq.'     ')  goto 140 ! end of data for this event
        sname(k)=iname
        spout(k)=s2p
