@@ -6,15 +6,16 @@ motion polarities and S/P amplitude ratios and to compute focal mechanisms.
 To install add the subfolders hashpy2 and hash to your PATH variable and make
 sure that the files:
 
-hashpy2/hashpy2.py
-hashpy2/strdiprake2ptnaxes.py
-hashpy2/stereonet.py
-hashpy2/plot_mechanism.sh
-hash/hash_hashpy1D
+* hashpy2/hashpy2.py
+* hashpy2/strdiprake2ptnaxes.py
+* hashpy2/stereonet.py
+* hashpy2/plot_mechanism.sh
+* hash/hash_hashpy1D
 
 are executeable. Then execute the hashpy2.py in your working directory. Make
 sure that a config.yaml is present.
 
+---
 
 [1] HASH is a collection of fortran routines written by Jeane Hardebeck and
 Peter M. Shearer. The original source code can be found at:
@@ -31,6 +32,7 @@ Hardebeck, Jeanne L. and Peter M. Shearer, Using S/P Amplitude Ratios to
 Constrain the Focal Mechanisms of Small Earthquakes, Bulletin of the
 Seismological Society of America, 93, 2434-2444, 2003.
 
+---
 
 Copyright (c) 2019, Wasja Bloch & Lukas Lehmann
 All rights reserved.
