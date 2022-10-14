@@ -36,8 +36,8 @@ if(plunge<0){plunge=-plunge; bearing+=180}
 if(bearing<0){bearing=bearing+360;}
 if(bearing>360){bearing=bearing-360;}
 printf("%i/%i\n",plunge, bearing);}' $angf |
-stereonet.py --lines |
-  psxy -J$J -Rd -Sp4p -Gsalmon -K -O >> $outfile
+./stereonet.py --lines |
+  gmt psxy -J$J -Rd -Sp4p -Gsalmon -K -O >> $outfile
 
 
 #  get coordinates
@@ -47,7 +47,7 @@ if(plunge<0){plunge=-plunge; bearing+=180}
 if(bearing<0){bearing=bearing+360;}
 if(bearing>360){bearing=bearing-360;}
 printf("%i/%i\n",plunge, bearing);}'|
-stereonet.py --lines > /tmp/coordinates
+./stereonet.py --lines > /tmp/coordinates
 
 
 #  get station names
@@ -69,23 +69,23 @@ else {print 2*sqrt(1/$5), "c";}}' > /tmp/rings
 
 #  Write Rings
 paste /tmp/coordinates /tmp/rings |
-  psxy -J$J -Rd -S -Wthick -K -O >> $outfile
+  gmt psxy -J$J -Rd -S -Wthick -K -O >> $outfile
 #  Write Polarities
 paste /tmp/coordinates /tmp/polarities |
-  psxy -J$J -Rd -S -Wthick -K -O >> $outfile
+  gmt psxy -J$J -Rd -S -Wthick -K -O >> $outfile
 #  Write Station names
 paste /tmp/coordinates /tmp/names |
-  pstext -J$J -Rd -D0.2/-0.2 -F+f8p,Helvetica,darkblue+jTL -N -K -O >> $outfile
+  gmt pstext -J$J -Rd -D0.2/-0.2 -F+f8p,Helvetica,darkblue+jTL -N -K -O >> $outfile
 
 
 #  get axis
 echo $sdr | strdiprake2ptnaxes.py -l | awk '{print $1}' |  
   stereonet.py --lines | awk '{print $1, $2, "P"}' |
-   pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
+   gmt pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
 
 echo $sdr | strdiprake2ptnaxes.py -l | awk '{print $2}' |  
   stereonet.py --lines | awk '{print $1, $2, "T"}' |
-  pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
+  gmt pstext -J$J -Rd -F+f12p,Helvetica-Bold -N -K -O >> $outfile
 
 
 #  Plot Infos
