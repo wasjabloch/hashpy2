@@ -127,8 +127,12 @@ c read in polarities
        if (iname.eq.'     ')  goto 140 ! end of data for this event
        sname(k)=iname
        spout(k)=s2p
-        call GETSTAT_NLL(stfile,sname(k),
-     &               flat,flon,felv)   ! NonLinLoc station format
+c NonLinLoc station format
+c        call GETSTAT_NLL(stfile,sname(k),
+c     &               flat,flon,felv)
+c Geena's station format
+        call GETSTAT_GL(stfile,sname(k),
+     &               flat,flon,felv)
         if (flat.eq.999.) go to 130
         dx=(flon-qlon)*111.2*aspect
         dy=(flat-qlat)*111.2
