@@ -1,6 +1,7 @@
 CATALOG: ./hyp/*.hyp
 RESULTS: ./results
 WAVEFORMS: ./events
+FORMAT: FUB2018
 STATIONS: stations.nll
 VELOCITIES:
     - vmodel.zv
@@ -10,4 +11,4 @@ nmc: 50
 maxout: 100
 cangle: 45
 prob_max: 0.2
-qmismax: 0.2
+qbadfac: 0.2
